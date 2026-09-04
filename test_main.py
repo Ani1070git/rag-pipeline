@@ -1,5 +1,5 @@
 from main import split_documents
-from langchain.schema import Document
+from langchain_core.documents import Document
 
 def test_split_documents():
     # Create fake pages instead of loading real PDF
