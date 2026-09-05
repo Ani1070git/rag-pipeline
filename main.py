@@ -21,6 +21,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+
 def load_document(file_path):
     loader = PyPDFLoader(file_path)
     pages = loader.load()
@@ -79,6 +81,9 @@ async def upload_pdf(file: UploadFile = File(...)):
     with open(file_path, 'wb') as buffer:
         shutil.copyfileobj(file.file, buffer)
 
+    if os.path.exists("./chroma_db"):
+        shutil.rmtree("./chroma_db")
+
     pages = load_document(file_path)
     chunks = split_documents(pages)
     vector_store = create_vector_store(chunks)
@@ -86,6 +91,9 @@ async def upload_pdf(file: UploadFile = File(...)):
     os.remove(file_path)
 
     return {"message": "PDF processed successfully", "chunks": len(chunks)}
+
+
+embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
 @app.post("/query")
 async def query_endpoint(request: dict):
@@ -98,7 +106,6 @@ async def query_endpoint(request: dict):
         if not os.path.exists("./chroma_db"):
             return {"error": "No PDF uploaded yet. Please upload a PDF first."}
         
-        embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
         vector_store = Chroma(
             persist_directory="./chroma_db",
             embedding_function=embeddings
