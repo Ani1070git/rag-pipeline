@@ -5,8 +5,21 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from groq import Groq
 import os
 from dotenv import load_dotenv
+from fastapi import FastAPI, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
+import shutil
+import uuid
 
 load_dotenv()
+
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 def load_document(file_path):
     loader = PyPDFLoader(file_path)
@@ -59,24 +72,45 @@ def query_rag(vector_store, question):
 
     return response.choices[0].message.content
 
-if __name__ == "__main__":
-    import os
-    
-    if os.path.exists("./chroma_db"):
-        print("Loading existing vector store...")
+@app.post("/upload")
+async def upload_pdf(file: UploadFile = File(...)):
+    file_path = f"temp_{uuid.uuid4()}.pdf"
+
+    with open(file_path, 'wb') as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    pages = load_document(file_path)
+    chunks = split_documents(pages)
+    vector_store = create_vector_store(chunks)
+
+    os.remove(file_path)
+
+    return {"message": "PDF processed successfully", "chunks": len(chunks)}
+
+@app.post("/query")
+async def query_endpoint(request: dict):
+    try:
+        question = request.get("question")
+        
+        if not question:
+            return {"error": "No question provided"}
+        
+        if not os.path.exists("./chroma_db"):
+            return {"error": "No PDF uploaded yet. Please upload a PDF first."}
+        
         embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
         vector_store = Chroma(
             persist_directory="./chroma_db",
             embedding_function=embeddings
         )
-        print("Vector store loaded!")
-    else:
-        print("Creating new vector store...")
-        pages = load_document("sample.pdf")
-        chunks = split_documents(pages)
-        vector_store = create_vector_store(chunks)
+        
+        answer = query_rag(vector_store, question)
+        return {"answer": answer}
     
-    question = "What are the best practices for using dictionaries?"
-    answer = query_rag(vector_store, question)
-    print(f"\nQuestion: {question}")
-    print(f"\nAnswer: {answer}")
+    except Exception as e:
+        return {"error": str(e)}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
