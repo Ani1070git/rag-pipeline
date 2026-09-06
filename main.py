@@ -9,6 +9,7 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import shutil
 import uuid
+import gc
 
 load_dotenv()
 
@@ -22,6 +23,14 @@ app.add_middleware(
 )
 
 embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+
+def clear_chroma_db():
+    if os.path.exists("./chroma_db"):
+        try:
+            gc.collect()
+            shutil.rmtree("./chroma_db")
+        except Exception as e:
+            print(f"Warning: Could not clear chroma_db: {e}")
 
 def load_document(file_path):
     loader = PyPDFLoader(file_path)
@@ -81,8 +90,7 @@ async def upload_pdf(file: UploadFile = File(...)):
     with open(file_path, 'wb') as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    if os.path.exists("./chroma_db"):
-        shutil.rmtree("./chroma_db")
+    clear_chroma_db()
 
     pages = load_document(file_path)
     chunks = split_documents(pages)
@@ -92,8 +100,10 @@ async def upload_pdf(file: UploadFile = File(...)):
 
     return {"message": "PDF processed successfully", "chunks": len(chunks)}
 
-
-embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+@app.post("/reset")
+async def reset():
+    clear_chroma_db()
+    return {"message": "Reset successful"}
 
 @app.post("/query")
 async def query_endpoint(request: dict):
